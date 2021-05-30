@@ -24,13 +24,21 @@ import javax.annotation.security.RolesAllowed;
 public class FileController {
     @RolesAllowed({"admin", "user"})
     @RequestMapping(value="/upload", method = RequestMethod.PUT, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public String fileUpload(@RequestHeader String Authorization,@RequestParam("service") String service,@RequestParam("path") String path, @RequestParam("file") MultipartFile bin) throws  IOException{
-        File file = new File(getBasicDirectory(service)+"/"+ path + "/" +bin.getOriginalFilename());
-        file.createNewFile();
-        FileOutputStream fout = new FileOutputStream(file);
-        fout.write(bin.getBytes());
-        fout.close();
-        return "File is upload successfully";
+    public ResponseEntity<Object> fileUpload(@RequestHeader String Authorization,@RequestParam("service") String service,@RequestParam("path") String path, @RequestParam("file") MultipartFile bin) throws  IOException{
+        try{
+            File file = new File(getBasicDirectory(service)+"/"+ path + "/" +bin.getOriginalFilename());
+            if(file.createNewFile()) {
+                FileOutputStream fout = new FileOutputStream(file);
+                fout.write(bin.getBytes());
+                fout.close();
+                return ResponseEntity.ok().build();
+            }
+            else
+                return ResponseEntity.notFound().build();
+        }catch(Exception e){
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Internal Server Error");
+
+        }
     }
 
     @RolesAllowed({"admin", "user"})
@@ -74,10 +82,7 @@ public class FileController {
         catch(Exception e){
             if(e.getMessage() == null)
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Not Found");
-            if(e.getMessage().equals("INVALID_PATH"))
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Rewrite path");
-            else if(e.getMessage().equals("FORBIDDEN"))
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Forbidden");
+
             else return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Unknown error");
         }
 
@@ -95,15 +100,15 @@ public class FileController {
         result.put("deleted", 0);
         result.put("ignored", 0);
         try {
-            paths.forEach(f->{
-
-                    File _f = new File(basic_path + f);
+            for(String f: paths){
+                    if (!validatePath(f).equals(f))
+                        continue;
+                    File _f = new File(basic_path + validatePath(f));
                     if (_f.delete())
                         result.replace("deleted", result.get("deleted") + 1);
-                    else
-                        result.replace("ignored", result.get("ignored") + 1);
 
-            });
+            }
+            result.replace("ignored", (path.split(",").length - result.get("deleted")));
             return ResponseEntity.ok().body(result);
 
         }catch (Exception e){
@@ -176,17 +181,17 @@ public class FileController {
     }
     private String getBasicDirectory(String reqService){
         /*check here if subject is initialized*/
-        File _s = new File("filesystem/"+ Subject() + "/" + reqService);
+        File _s = new File("/var/usr/share/"+ Subject() + "/" + reqService);
         if(!_s.exists())
             _s.mkdirs();
         return _s.getAbsolutePath();
     }
 
-    private String validatePath(String path) throws Exception{
+    private String validatePath(String path){
         /*user cannot access files below the service one*/
         int back = 0, dir=0;
         /*check if path starts with '/' */
-        if(path.charAt(0) != '/') throw new Exception("INVALID_PATH");
+        if(path.charAt(0) != '/') return "/";
         List<String> pathElements = Stream.of(path.split("/")).filter(e-> {return !e.equals("");}).collect(Collectors.toList());
         for (String element: pathElements){
             if(element.equals(".."))
@@ -195,10 +200,10 @@ public class FileController {
                 dir++;
         }
 
-        if ( back <=dir)
+        if ( back <= dir)
             return path;
         else
-            throw new Exception("FORBIDDEN");
+            return "/";
     }
 
 }
